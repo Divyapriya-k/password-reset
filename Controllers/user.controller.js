@@ -1,18 +1,16 @@
-import User from "../Models/user.schema.js";
+import User from "../Models/userModel.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
-
+import nodemailer from "nodemailer";
 dotenv.config();
-
-// Register a new user || signup
 
 export const registerUser = async (req, res) => {
   try {
-    const { username, email, password, role } = req.body;
+    const { name, email, password, role } = req.body;
     const hashPassword = await bcrypt.hash(password, 10);
     //console.log(hashPassword);
-    const newUser = new User({ username, email, password: hashPassword, role });
+    const newUser = new User({ name, email, password: hashPassword, role });
     await newUser.save();
     res
       .status(200)
@@ -48,14 +46,63 @@ export const loginUser = async (req, res) => {
   }
 };
 
-//get user
-
-export const getUser = async (req, res) => {
+// forgot password
+export const forgotPassword = async (req, res) => {
   try {
-    //const userId = req.user._id;
-    const user = await User.find();
-    res.status(200).json({ message: "Authorized User", data: user });
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: "User Not Found" });
+    }
+    const token = jwt.sign({ _id: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "1h",
+    });
+    const transporter = nodemailer.createTransport({
+      //Gmail or yahoo or outlook
+      service: "Gmail",
+      auth: {
+        user: process.env.PASS_MAIL,
+        pass: process.env.PASS_KEY,
+      },
+    });
+    const mailOptions = {
+      from: process.env.PASS_MAIL,
+      to: user.email,
+      subject: "Password Reset Link",
+      text: `You are receiving this because you have requested the reset of the password for your account 
+      Please click the following link or paste it into your browser to complete the process
+      firebase-login-signup-07.netlify.app/#${user._id}/${token}`,
+    };
+    transporter.sendMail(mailOptions, function (error, info) {
+      if (error) {
+        console.log(error);
+        res
+          .status(500)
+          .json({ message: "Internal server error in sending the mail" });
+      } else {
+        res.status(200).json({ message: "Email Sent Successfully" });
+      }
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
+};
+
+export const resetPassword = async (req, res) => {
+  const { id, token } = req.params;
+  const { password } = req.body;
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(400).json({ message: "Invalid Token" });
+    } else {
+      bcrypt
+        .hash(password, 10)
+        .then((hash) => {
+          User.findByIdAndUpdate({ _id: id }, { password: hash })
+            .then((ele) => res.send({ status: "Success" }))
+            .catch((err) => res.send({ status: err }));
+        })
+        .catch((err) => res.send({ status: err }));
+    }
+  });
 };
